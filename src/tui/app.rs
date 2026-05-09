@@ -295,12 +295,36 @@ impl<'a> App<'a> {
                 // SAFETY: terminal is valid for the duration of this call.
                 // Python runs synchronously under the GIL, so no concurrent access occurs.
                 unsafe { screen.set_terminal_ptr(terminal) };
-                let locals = pyo3::types::PyDict::new(py);
-                locals.set_item("screen", screen)?;
+
+                // Use a single dict as both globals and locals so closures can resolve `screen`.
+                let namespace = pyo3::types::PyDict::new(py);
+                namespace.set_item("screen", screen)?;
+
+                // Replace time.sleep with a chunked version that redraws between sleeps,
+                // preventing the TUI from freezing during sleep calls.
+                let inject_cstr = std::ffi::CString::new(
+                    concat!(
+                        "import time, os\n",
+                        "_sleep_real = time.sleep\n",
+                        "def _sleep_chunk(seconds):\n",
+                        "    chunk = 0.016\n",
+                        "    if seconds <= chunk:\n",
+                        "        _sleep_real(seconds)\n",
+                        "        return\n",
+                        "    n = int(seconds / chunk) + 1\n",
+                        "    for _ in range(n):\n",
+                        "        _sleep_real(chunk)\n",
+                        "        screen.refresh()\n",
+                        "time.sleep = _sleep_chunk\n",
+                    ),
+                )
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid code: {}", e)))?;
+                py.run(inject_cstr.as_c_str(), Some(&namespace), Some(&namespace))?;
+
                 let code_cstr = std::ffi::CString::new(&*code).map_err(|e| {
                     pyo3::exceptions::PyValueError::new_err(format!("Invalid code: {}", e))
                 })?;
-                py.run(code_cstr.as_c_str(), None, Some(&locals))
+                py.run(code_cstr.as_c_str(), Some(&namespace), Some(&namespace))
             })
         }));
 
