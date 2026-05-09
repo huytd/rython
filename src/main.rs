@@ -50,7 +50,11 @@ fn run(
         terminal.draw(|frame| app.render(frame))?;
 
         let event = crate::event::poll();
-        app.handle_event(&event);
+        let should_run = app.handle_event(&event);
+
+        if should_run {
+            app.run_code(terminal);
+        }
 
         if app.should_quit() {
             break;

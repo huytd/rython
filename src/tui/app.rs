@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use pyo3::prelude::*;
+use pyo3::types::PyDictMethods;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
@@ -61,23 +62,25 @@ impl<'a> App<'a> {
         self.quit
     }
 
-    pub fn handle_event(&mut self, event: &Event) {
+    /// Returns true if the caller should run the code (needs terminal access).
+    pub fn handle_event(&mut self, event: &Event) -> bool {
         if let Event::Key(key) = event {
             match self.mode {
-                Mode::Editor => self.handle_editor_key(key),
+                Mode::Editor => return self.handle_editor_key(key),
                 Mode::Run => self.handle_run_key(key),
                 Mode::Open => self.handle_open_key(key),
             }
         }
+        false
     }
 
-    fn handle_editor_key(&mut self, key: &crossterm::event::KeyEvent) {
+    fn handle_editor_key(&mut self, key: &crossterm::event::KeyEvent) -> bool {
         let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
         match (key.code, is_ctrl) {
             // F5 or Ctrl+R => Run
             (KeyCode::F(5), _) | (KeyCode::Char('r'), true) => {
-                self.run_code();
+                return true;
             }
             // Ctrl+O => Open file
             (KeyCode::Char('o'), true) => {
@@ -93,6 +96,7 @@ impl<'a> App<'a> {
                 self.textarea.input(*key);
             }
         }
+        false
     }
 
     fn handle_run_key(&mut self, _key: &crossterm::event::KeyEvent) {
@@ -148,16 +152,23 @@ impl<'a> App<'a> {
         }
     }
 
-    fn run_code(&mut self) {
+    pub fn run_code(
+        &mut self,
+        terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
+    ) {
         self.error_msg = None;
         self.grid.lock().unwrap().clear();
 
-        let code: String = self.textarea.lines().iter().map(|l| l.as_str()).collect::<Vec<_>>().join("\n");
+        let lines: Vec<_> = self.textarea.lines().iter().map(|l| l.as_str()).collect();
+        let code: String = lines.join("\n");
 
         let grid_clone = self.grid.clone();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             pyo3::Python::attach(|py| -> PyResult<()> {
-                let screen = Screen::from_grid(grid_clone);
+                let mut screen = Screen::from_grid(grid_clone);
+                // SAFETY: terminal is valid for the duration of this call.
+                // Python runs synchronously under the GIL, so no concurrent access occurs.
+                unsafe { screen.set_terminal_ptr(terminal) };
                 let locals = pyo3::types::PyDict::new(py);
                 locals.set_item("screen", screen)?;
                 let code_cstr = std::ffi::CString::new(&*code).map_err(|e| {
