@@ -1,0 +1,10 @@
+[package]
+name = "pymodo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pyo3 = { version = "0.28", features = ["auto-initialize"] }
+ratatui = "0.30"
+crossterm = "0.29"
+ratatui-textarea = "0.9"
