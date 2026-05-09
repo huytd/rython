@@ -209,6 +209,8 @@ impl<'a> App<'a> {
     }
 
     fn render_editor(&mut self, frame: &mut Frame, area: Rect) {
+        self.textarea.set_cursor_line_style(Style::default().bg(Color::Rgb(50, 50, 50)));
+
         let title = Line::from(vec![
             Span::styled("pymodo", Style::new().fg(Color::Cyan).bold()),
             Span::raw("  |  "),
