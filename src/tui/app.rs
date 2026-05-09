@@ -53,6 +53,14 @@ screen.scroll(n)
 screen.refresh()
   Force an immediate redraw. Use in animation loops.
 
+screen.read_key()
+  Poll for a keypress (non-blocking). Returns the key name as a string,
+  or "none" if no key was pressed.
+  Arrow keys return: "up", "down", "left", "right"
+  Letters return: "a", "b", "c", ... (lowercase)
+  Special keys: "enter", "esc", "tab", "backspace", "delete", "f1"..."f12"
+  Use in game loops to read input without blocking.
+
 --- Colors ---
 
 black, white, red, cyan, purple, green, blue,

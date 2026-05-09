@@ -1,6 +1,8 @@
+use crossterm::event::{self as cevent, Event as CEvent, KeyEvent, KeyCode, KeyEventKind};
 use pyo3::prelude::*;
 use ratatui::layout::Rect;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::grid::{Color, Grid};
 
@@ -114,5 +116,49 @@ impl Screen {
                 Ok::<(), std::io::Error>(())
             });
         }
+    }
+
+    /// Poll for a keypress from crossterm's event queue (non-blocking).
+    /// Returns the key name as a string, or "none" if no key was pressed.
+    fn read_key(&self) -> PyResult<String> {
+        if cevent::poll(Duration::from_millis(0)).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))? {
+            match cevent::read().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))? {
+                CEvent::Key(KeyEvent { code, kind: KeyEventKind::Press, .. }) => {
+                    Ok(key_to_name(code))
+                }
+                _ => Ok("none".to_string()),
+            }
+        } else {
+            Ok("none".to_string())
+        }
+    }
+}
+
+fn key_to_name(code: KeyCode) -> String {
+    match code {
+        KeyCode::Char(c) => c.to_string(),
+        KeyCode::Up => "up".to_string(),
+        KeyCode::Down => "down".to_string(),
+        KeyCode::Left => "left".to_string(),
+        KeyCode::Right => "right".to_string(),
+        KeyCode::Enter => "enter".to_string(),
+        KeyCode::Esc => "esc".to_string(),
+        KeyCode::Tab => "tab".to_string(),
+        KeyCode::Backspace => "backspace".to_string(),
+        KeyCode::Delete => "delete".to_string(),
+        KeyCode::Insert => "insert".to_string(),
+        KeyCode::Home => "home".to_string(),
+        KeyCode::End => "end".to_string(),
+        KeyCode::PageUp => "pageup".to_string(),
+        KeyCode::PageDown => "pagedown".to_string(),
+        KeyCode::F(n) => format!("f{}", n),
+        KeyCode::CapsLock => "capslock".to_string(),
+        KeyCode::ScrollLock => "scrolllock".to_string(),
+        KeyCode::NumLock => "numlock".to_string(),
+        KeyCode::PrintScreen => "printscreen".to_string(),
+        KeyCode::Pause => "pause".to_string(),
+        KeyCode::Menu => "menu".to_string(),
+        KeyCode::Null => "none".to_string(),
+        _ => "none".to_string(),
     }
 }
