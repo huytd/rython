@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+dirs = "5"
 pyo3 = { version = "0.28", features = ["auto-initialize"] }
 ratatui = "0.30"
 crossterm = "0.29"

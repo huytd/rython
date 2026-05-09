@@ -81,6 +81,13 @@ fn parse_args() -> CliArgs {
     }
 }
 
+fn unsaved_path() -> PathBuf {
+    let mut path = dirs::home_dir().expect("Could not determine home directory");
+    path.push(".pymodo");
+    path.push("unsaved");
+    path
+}
+
 fn main() {
     let cli = parse_args();
 
@@ -99,7 +106,19 @@ fn main() {
             }
         }
     } else {
-        None
+        // Load unsaved buffer from previous session
+        let path = unsaved_path();
+        if path.exists() {
+            match fs::read_to_string(&path) {
+                Ok(contents) => Some(contents),
+                Err(e) => {
+                    eprintln!("Warning: could not load unsaved buffer: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
     };
 
     let (width, height, fullscreen) = if cli.fullscreen {
@@ -118,7 +137,8 @@ fn main() {
 
     let grid = Arc::new(Mutex::new(Grid::new(width, height)));
     let initial_code_ref = initial_code.as_deref();
-    let mut app = App::new(grid.clone(), initial_code_ref, fullscreen);
+    let initial_path = cli.file.clone();
+    let mut app = App::new(grid.clone(), initial_code_ref, initial_path, fullscreen);
 
     let mut terminal = ratatui::init();
 

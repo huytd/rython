@@ -16,6 +16,13 @@ use crate::grid::Grid;
 use crate::python::Screen;
 use crate::tui::grid_view::GridView;
 
+fn unsaved_path() -> std::path::PathBuf {
+    let mut path = dirs::home_dir().expect("Could not determine home directory");
+    path.push(".pymodo");
+    path.push("unsaved");
+    path
+}
+
 fn build_help_text(width: usize, height: usize) -> String {
     format!(
         r##"
@@ -88,7 +95,9 @@ for y in range({height}):
 
 F1 / Ctrl+/   Toggle this help panel
 F5 / Ctrl+R Run the script
+Ctrl+S      Save file (or "Save As..." if new)
 Ctrl+O      Open a file
+Ctrl+N      New buffer (discards unsaved)
 Ctrl+C  Quit
 Up/Down     Scroll this help panel (when visible)
 PageUp/PageDn  Scroll help faster
@@ -105,6 +114,7 @@ pub enum Mode {
     Editor,
     Run,
     Open,
+    SaveAs,
 }
 
 pub struct App<'a> {
@@ -114,6 +124,9 @@ pub struct App<'a> {
     error_msg: Option<String>,
     open_input: String,
     open_error: Option<String>,
+    save_as_input: String,
+    save_as_error: Option<String>,
+    current_file_path: Option<String>,
     quit: bool,
     help_visible: bool,
     help_scroll_offset: usize,
@@ -121,7 +134,12 @@ pub struct App<'a> {
 }
 
 impl<'a> App<'a> {
-    pub fn new(grid: Arc<Mutex<Grid>>, initial_code: Option<&str>, fullscreen: bool) -> Self {
+    pub fn new(
+        grid: Arc<Mutex<Grid>>,
+        initial_code: Option<&str>,
+        initial_path: Option<String>,
+        fullscreen: bool,
+    ) -> Self {
         let mut textarea = TextArea::default();
         if let Some(code) = initial_code {
             for (i, line) in code.lines().enumerate() {
@@ -141,6 +159,9 @@ impl<'a> App<'a> {
             error_msg: None,
             open_input: String::new(),
             open_error: None,
+            save_as_input: String::new(),
+            save_as_error: None,
+            current_file_path: initial_path,
             quit: false,
             help_visible: false,
             help_scroll_offset: 0,
@@ -158,8 +179,9 @@ impl<'a> App<'a> {
             Event::Key(key) => {
                 match self.mode {
                     Mode::Editor => return self.handle_editor_key(key),
-                    Mode::Run => self.handle_run_key(key),
+                    Mode::Run => self.run_key(key),
                     Mode::Open => self.handle_open_key(key),
+                    Mode::SaveAs => self.handle_save_as_key(key),
                 }
             }
             Event::Resize(w, h) => {
@@ -194,6 +216,30 @@ impl<'a> App<'a> {
                 self.open_error = None;
                 self.mode = Mode::Open;
             }
+            // Ctrl+S => Save file
+            (KeyCode::Char('s'), true) => {
+                if let Some(ref path) = self.current_file_path {
+                    match fs::write(path, self.textarea_text()) {
+                        Ok(()) => {}
+                        Err(e) => {
+                            self.error_msg = Some(format!("Failed to save '{}': {}", path, e));
+                            self.mode = Mode::Run;
+                            return true;
+                        }
+                    }
+                } else {
+                    // No file path set, prompt for "Save As..."
+                    self.save_as_input.clear();
+                    self.save_as_error = None;
+                    self.mode = Mode::SaveAs;
+                }
+            }
+            // Ctrl+N => New buffer (discard unsaved)
+            (KeyCode::Char('n'), true) => {
+                self.textarea = TextArea::default();
+                self.current_file_path = None;
+                self.autosave_unsaved();
+            }
             // Ctrl+C => Quit
             (KeyCode::Char('c'), true) => {
                 self.quit = true;
@@ -215,17 +261,19 @@ impl<'a> App<'a> {
                     }
                     _ => {
                         self.textarea.input(*key);
+                        self.autosave_unsaved();
                     }
                 }
             }
             _ => {
                 self.textarea.input(*key);
+                self.autosave_unsaved();
             }
         }
         false
     }
 
-    fn handle_run_key(&mut self, _key: &crossterm::event::KeyEvent) {
+    fn run_key(&mut self, _key: &crossterm::event::KeyEvent) {
         // Any key returns to editor mode.
         self.mode = Mode::Editor;
     }
@@ -255,6 +303,7 @@ impl<'a> App<'a> {
                             }
                         }
                         self.textarea = new_textarea;
+                        self.current_file_path = Some(path);
                         self.mode = Mode::Editor;
                     }
                     Err(e) => {
@@ -278,6 +327,58 @@ impl<'a> App<'a> {
         }
     }
 
+    fn handle_save_as_key(&mut self, key: &crossterm::event::KeyEvent) {
+        let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
+        match (key.code, is_ctrl) {
+            // Enter => Save file
+            (KeyCode::Enter, _) => {
+                let path = self.save_as_input.trim().to_string();
+                if path.is_empty() {
+                    self.mode = Mode::Editor;
+                    return;
+                }
+                match fs::write(&path, self.textarea_text()) {
+                    Ok(()) => {
+                        self.current_file_path = Some(path);
+                        self.mode = Mode::Editor;
+                    }
+                    Err(e) => {
+                        self.save_as_error = Some(format!("Failed to save '{}': {}", path, e));
+                    }
+                }
+            }
+            // Esc => Cancel
+            (KeyCode::Esc, _) => {
+                self.mode = Mode::Editor;
+            }
+            // Backspace
+            (KeyCode::Backspace, _) => {
+                self.save_as_input.pop();
+            }
+            // Regular character input
+            (KeyCode::Char(c), _) => {
+                self.save_as_input.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    fn textarea_text(&self) -> String {
+        self.textarea.lines().iter().map(|l| l.as_str()).collect::<Vec<_>>().join("\n")
+    }
+
+    fn autosave_unsaved(&mut self) {
+        if self.current_file_path.is_some() {
+            return; // Don't autosave if already associated with a file
+        }
+        let path = unsaved_path();
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(&path, self.textarea_text());
+    }
+
     pub fn run_code(
         &mut self,
         terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
@@ -285,8 +386,7 @@ impl<'a> App<'a> {
         self.error_msg = None;
         self.grid.lock().unwrap().clear();
 
-        let lines: Vec<_> = self.textarea.lines().iter().map(|l| l.as_str()).collect();
-        let code: String = lines.join("\n");
+        let code = self.textarea_text();
 
         let grid_clone = self.grid.clone();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -355,6 +455,7 @@ impl<'a> App<'a> {
             Mode::Editor => self.render_editor(frame, area),
             Mode::Run => self.render_run(frame, area),
             Mode::Open => self.render_open(frame, area),
+            Mode::SaveAs => self.render_save_as(frame, area),
         }
     }
 
@@ -369,14 +470,28 @@ impl<'a> App<'a> {
             format!("{}x{}", g.width, g.height)
         };
 
+        let file_label = if let Some(ref path) = self.current_file_path {
+            // Show just the filename
+            std::path::Path::new(path)
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_else(|| "pymodo".to_string())
+        } else {
+            "Unsaved".to_string()
+        };
+
         let title = Line::from(vec![
             Span::styled("pymodo", Style::new().fg(Color::Cyan).bold()),
-            Span::raw(format!("  |  screen: {}  |  ", size_label)),
+            Span::raw(format!("  |  {}  |  screen: {}  |  ", file_label, size_label)),
             Span::styled("F1 / Ctrl+/: Help", Style::new().fg(Color::DarkGray)),
             Span::raw("  |  "),
             Span::styled("F5 / Ctrl+R: Run", Style::new().fg(Color::DarkGray)),
             Span::raw("  |  "),
+            Span::styled("Ctrl+S: Save", Style::new().fg(Color::DarkGray)),
+            Span::raw("  |  "),
             Span::styled("Ctrl+O: Open", Style::new().fg(Color::DarkGray)),
+            Span::raw("  |  "),
+            Span::styled("Ctrl+N: New", Style::new().fg(Color::DarkGray)),
             Span::raw("  |  "),
             Span::styled("Ctrl+C: Quit", Style::new().fg(Color::DarkGray)),
         ]);
@@ -578,6 +693,33 @@ impl<'a> App<'a> {
             Line::from(vec![
                 Span::styled("Open file: ", Style::new().fg(Color::Cyan)),
                 Span::raw(&self.open_input),
+            ])
+        };
+        let input_widget = Paragraph::new(prompt)
+            .style(Style::new().bg(Color::Black));
+        frame.render_widget(input_widget, input_area);
+
+        // Render editor above
+        self.render_editor(frame, editor_area);
+    }
+
+    fn render_save_as(&mut self, frame: &mut Frame, area: Rect) {
+        // Render the editor above the input bar
+        let input_bar_height = 1;
+        let editor_area = Rect::new(area.x, area.y, area.width, area.height - input_bar_height);
+        let input_area = Rect::new(area.x, area.y + editor_area.height, area.width, input_bar_height);
+
+        // Draw a prompt line at the bottom
+        let prompt = if let Some(ref err) = self.save_as_error {
+            Line::from(vec![
+                Span::styled("Save as: ", Style::new().fg(Color::Cyan)),
+                Span::raw(&self.save_as_input),
+                Span::styled(format!("  {}", err), Style::new().fg(Color::Red)),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("Save as: ", Style::new().fg(Color::Cyan)),
+                Span::raw(&self.save_as_input),
             ])
         };
         let input_widget = Paragraph::new(prompt)
