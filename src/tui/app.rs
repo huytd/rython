@@ -291,7 +291,7 @@ impl<'a> App<'a> {
         let grid_clone = self.grid.clone();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             pyo3::Python::attach(|py| -> PyResult<()> {
-                let mut screen = Screen::from_grid(grid_clone);
+                let mut screen = Screen::from_grid(grid_clone, self.fullscreen);
                 // SAFETY: terminal is valid for the duration of this call.
                 // Python runs synchronously under the GIL, so no concurrent access occurs.
                 unsafe { screen.set_terminal_ptr(terminal) };

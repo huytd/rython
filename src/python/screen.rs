@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use ratatui::layout::Rect;
 use std::sync::{Arc, Mutex};
 
 use crate::grid::{Color, Grid};
@@ -31,13 +32,15 @@ impl TerminalPtr {
 pub struct Screen {
     grid: Arc<Mutex<Grid>>,
     terminal_ptr: TerminalPtr,
+    fullscreen: bool,
 }
 
 impl Screen {
-    pub fn from_grid(grid: Arc<Mutex<Grid>>) -> Self {
+    pub fn from_grid(grid: Arc<Mutex<Grid>>, fullscreen: bool) -> Self {
         Screen {
             grid,
             terminal_ptr: TerminalPtr::null(),
+            fullscreen,
         }
     }
 
@@ -79,9 +82,35 @@ impl Screen {
     fn refresh(&self) {
         if let Some(term) = self.terminal_ptr.as_mut() {
             let grid = self.grid.lock().unwrap().clone();
+            let fullscreen = self.fullscreen;
             let _ = term.try_draw(|frame| {
                 use crate::tui::grid_view::GridView;
-                frame.render_widget(GridView(&grid), frame.area());
+                let area = frame.area();
+                let grid_width = grid.width as u16;
+                let grid_height = grid.height as u16;
+
+                let render_area = if fullscreen || (grid_width >= area.width && grid_height >= area.height) {
+                    area
+                } else {
+                    let x_offset = if area.width > grid_width {
+                        (area.width - grid_width) / 2
+                    } else {
+                        0
+                    };
+                    let y_offset = if area.height > grid_height {
+                        (area.height - grid_height) / 2
+                    } else {
+                        0
+                    };
+                    Rect::new(
+                        area.x + x_offset,
+                        area.y + y_offset,
+                        grid_width.min(area.width),
+                        grid_height.min(area.height),
+                    )
+                };
+
+                frame.render_widget(GridView(&grid), render_area);
                 Ok::<(), std::io::Error>(())
             });
         }
