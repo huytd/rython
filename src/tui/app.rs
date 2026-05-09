@@ -5,16 +5,92 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use pyo3::prelude::*;
 use pyo3::types::PyDictMethods;
 use ratatui::Frame;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 use ratatui_textarea::TextArea;
 
 use crate::event::Event;
 use crate::grid::Grid;
 use crate::python::Screen;
 use crate::tui::grid_view::GridView;
+
+const HELP_CONTENT: &str = r##"
+=== pymodo Python API Reference ===
+
+The screen object is available globally. No imports needed.
+Canvas: 40 columns (x) x 25 rows (y), origin (0,0) = top-left.
+
+--- Methods ---
+
+screen.set(x, y, ch, fg, bg)
+  Place a single character at (x, y).
+  x: int (0-39), y: int (0-24)
+  ch: str (single character)
+  fg, bg: str (color name, case-insensitive)
+
+screen.print(text, x, y, fg, bg)
+  Print a string at (x, y). Auto-wraps at col 40.
+  Scrolls up when reaching the bottom row.
+
+screen.clear()
+  Clear the entire grid back to empty cells.
+
+screen.scroll(n)
+  Scroll the screen UP by n rows. Bottom fills blank.
+  If n >= 25, clears entirely.
+
+screen.refresh()
+  Force an immediate redraw. Use in animation loops.
+
+--- Colors ---
+
+black, white, red, cyan, purple, green, blue,
+yellow, orange, brown, lightred, darkgray, gray,
+lightgreen, lightblue, lightgray
+
+(Case-insensitive, C64-inspired RGB values)
+
+--- Quick Examples ---
+
+# Single character
+screen.set(10, 5, "A", "yellow", "black")
+
+# Print text
+screen.print("Hello!", 5, 10, "white", "blue")
+
+# Animation loop
+import time
+for i in range(30):
+    screen.clear()
+    screen.set(i % 40, 12, "@", "green", "black")
+    screen.refresh()
+    time.sleep(0.1)
+
+# Pattern
+for y in range(20):
+    for x in range(40):
+        ch = "#" if (x + y) % 2 == 0 else "."
+        screen.set(x, y, ch, "yellow", "black")
+
+--- Tips ---
+
+- Out-of-bounds writes are silently ignored
+- screen.print() auto-wraps and scrolls
+- Use screen.refresh() in loops to see each frame
+- Standard Python works (time.sleep, f-strings, etc.)
+- Errors show on screen; press any key to return
+
+--- Editor Shortcuts ---
+
+F1 / Ctrl+/   Toggle this help panel
+F5 / Ctrl+R Run the script
+Ctrl+O      Open a file
+Ctrl+C  Quit
+Up/Down     Scroll this help panel (when visible)
+PageUp/PageDn  Scroll help faster
+"##;
 
 #[derive(PartialEq)]
 pub enum Mode {
@@ -31,6 +107,8 @@ pub struct App<'a> {
     open_input: String,
     open_error: Option<String>,
     quit: bool,
+    help_visible: bool,
+    help_scroll_offset: usize,
 }
 
 impl<'a> App<'a> {
@@ -55,6 +133,8 @@ impl<'a> App<'a> {
             open_input: String::new(),
             open_error: None,
             quit: false,
+            help_visible: false,
+            help_scroll_offset: 0,
         }
     }
 
@@ -78,6 +158,13 @@ impl<'a> App<'a> {
         let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
         match (key.code, is_ctrl) {
+            // F1 or Ctrl+/ => Toggle help
+            (KeyCode::F(1), _) | (KeyCode::Char('7'), true) => {
+                self.help_visible = !self.help_visible;
+                if self.help_visible {
+                    self.help_scroll_offset = 0;
+                }
+            }
             // F5 or Ctrl+R => Run
             (KeyCode::F(5), _) | (KeyCode::Char('r'), true) => {
                 return true;
@@ -88,9 +175,29 @@ impl<'a> App<'a> {
                 self.open_error = None;
                 self.mode = Mode::Open;
             }
-            // Esc or Ctrl+C => Quit
-            (KeyCode::Esc, _) | (KeyCode::Char('c'), true) => {
+            // Ctrl+C => Quit
+            (KeyCode::Char('c'), true) => {
                 self.quit = true;
+            }
+            // When help is visible, handle scrolling with arrow keys and page up/down
+            _ if self.help_visible => {
+                match key.code {
+                    KeyCode::Up => {
+                        self.help_scroll_offset = self.help_scroll_offset.saturating_sub(1);
+                    }
+                    KeyCode::Down => {
+                        self.help_scroll_offset += 1;
+                    }
+                    KeyCode::PageUp => {
+                        self.help_scroll_offset = self.help_scroll_offset.saturating_sub(10);
+                    }
+                    KeyCode::PageDown => {
+                        self.help_scroll_offset += 10;
+                    }
+                    _ => {
+                        self.textarea.input(*key);
+                    }
+                }
             }
             _ => {
                 self.textarea.input(*key);
@@ -214,18 +321,106 @@ impl<'a> App<'a> {
         let title = Line::from(vec![
             Span::styled("pymodo", Style::new().fg(Color::Cyan).bold()),
             Span::raw("  |  "),
+            Span::styled("F1 / Ctrl+/: Help", Style::new().fg(Color::DarkGray)),
+            Span::raw("  |  "),
             Span::styled("F5 / Ctrl+R: Run", Style::new().fg(Color::DarkGray)),
             Span::raw("  |  "),
             Span::styled("Ctrl+O: Open", Style::new().fg(Color::DarkGray)),
             Span::raw("  |  "),
-            Span::styled("Esc / Ctrl+C: Quit", Style::new().fg(Color::DarkGray)),
+            Span::styled("Ctrl+C: Quit", Style::new().fg(Color::DarkGray)),
         ]);
 
         let block = Block::bordered().title(title);
         let inner = block.inner(area);
 
         frame.render_widget(block, area);
-        frame.render_widget(&self.textarea, inner);
+
+        if self.help_visible {
+            // Split: editor on left (60%), help on right (40%)
+            let chunks = Layout::horizontal([
+                Constraint::Percentage(60),
+                Constraint::Percentage(40),
+            ]).split(inner);
+
+            frame.render_widget(&self.textarea, chunks[0]);
+            self.render_help_panel(frame, chunks[1]);
+        } else {
+            frame.render_widget(&self.textarea, inner);
+        }
+    }
+
+    fn render_help_panel(&mut self, frame: &mut Frame, area: Rect) {
+        let help_block = Block::bordered().title(Line::from(vec![
+            Span::styled(" Help (Up/Down to scroll) ", Style::new().fg(Color::Cyan).bold()),
+        ]));
+        let inner = help_block.inner(area);
+
+        frame.render_widget(help_block, area);
+
+        // Build the help text lines
+        let all_lines: Vec<Line> = HELP_CONTENT
+            .lines()
+            .map(|line| {
+                let trimmed = line.trim_end();
+                if trimmed.starts_with("===") {
+                    Line::from(vec![Span::styled(
+                        trimmed,
+                        Style::new().fg(Color::Cyan).bold(),
+                    )])
+                } else if trimmed.starts_with("---") {
+                    Line::from(vec![Span::styled(
+                        trimmed,
+                        Style::new().fg(Color::Yellow),
+                    )])
+                } else if trimmed.starts_with(' ') || trimmed.starts_with('#') {
+                    Line::from(vec![Span::styled(
+                        trimmed,
+                        Style::new().fg(Color::Gray),
+                    )])
+                } else if trimmed.contains('(') && trimmed.ends_with(')') {
+                    Line::from(vec![Span::styled(
+                        trimmed,
+                        Style::new().fg(Color::Green).bold(),
+                    )])
+                } else if trimmed.starts_with('-') {
+                    Line::from(vec![Span::styled(
+                        trimmed,
+                        Style::new().fg(Color::Gray).bold(),
+                    )])
+                } else {
+                    Line::from(vec![Span::raw(trimmed)])
+                }
+            })
+            .collect();
+
+        let total_lines = all_lines.len();
+        let visible_height = inner.height as usize;
+
+        // Clamp scroll offset
+        if total_lines > visible_height {
+            self.help_scroll_offset = self.help_scroll_offset.min(total_lines - visible_height);
+        } else {
+            self.help_scroll_offset = 0;
+        }
+
+        // Render visible lines
+        let visible_lines: Vec<Line> = all_lines
+            .iter()
+            .skip(self.help_scroll_offset)
+            .take(visible_height)
+            .cloned()
+            .collect();
+
+        let help_text = Text::from(visible_lines);
+        frame.render_widget(Paragraph::new(help_text), inner);
+
+        // Scrollbar
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .thumb_style(Style::new().fg(Color::DarkGray));
+        let mut scrollbar_state = ScrollbarState::default()
+            .content_length(total_lines)
+            .position(self.help_scroll_offset);
+        frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }
 
     fn render_run(&mut self, frame: &mut Frame, area: Rect) {
