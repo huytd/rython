@@ -16,22 +16,24 @@ use crate::grid::Grid;
 use crate::python::Screen;
 use crate::tui::grid_view::GridView;
 
-const HELP_CONTENT: &str = r##"
+fn build_help_text(width: usize, height: usize) -> String {
+    format!(
+        r##"
 === pymodo Python API Reference ===
 
 The screen object is available globally. No imports needed.
-Canvas: 40 columns (x) x 25 rows (y), origin (0,0) = top-left.
+Canvas: {width} columns (x) x {height} rows (y), origin (0,0) = top-left.
 
 --- Methods ---
 
 screen.set(x, y, ch, fg, bg)
   Place a single character at (x, y).
-  x: int (0-39), y: int (0-24)
+  x: int (0-{wmax}), y: int (0-{hmax})
   ch: str (single character)
   fg, bg: str (color name, case-insensitive)
 
 screen.print(text, x, y, fg, bg)
-  Print a string at (x, y). Auto-wraps at col 40.
+  Print a string at (x, y). Auto-wraps at col {width}.
   Scrolls up when reaching the bottom row.
 
 screen.clear()
@@ -39,7 +41,7 @@ screen.clear()
 
 screen.scroll(n)
   Scroll the screen UP by n rows. Bottom fills blank.
-  If n >= 25, clears entirely.
+  If n >= {height}, clears entirely.
 
 screen.refresh()
   Force an immediate redraw. Use in animation loops.
@@ -62,16 +64,16 @@ screen.print("Hello!", 5, 10, "white", "blue")
 
 # Animation loop
 import time
-for i in range(30):
+for i in range({width}):
     screen.clear()
-    screen.set(i % 40, 12, "@", "green", "black")
+    screen.set(i %% {width}, 12, "@", "green", "black")
     screen.refresh()
     time.sleep(0.1)
 
 # Pattern
-for y in range(20):
-    for x in range(40):
-        ch = "#" if (x + y) % 2 == 0 else "."
+for y in range({height}):
+    for x in range({width}):
+        ch = "#" if (x + y) %% 2 == 0 else "."
         screen.set(x, y, ch, "yellow", "black")
 
 --- Tips ---
@@ -90,7 +92,13 @@ Ctrl+O      Open a file
 Ctrl+C  Quit
 Up/Down     Scroll this help panel (when visible)
 PageUp/PageDn  Scroll help faster
-"##;
+"##,
+        width = width,
+        height = height,
+        wmax = width - 1,
+        hmax = height - 1,
+    )
+}
 
 #[derive(PartialEq)]
 pub enum Mode {
@@ -109,10 +117,11 @@ pub struct App<'a> {
     quit: bool,
     help_visible: bool,
     help_scroll_offset: usize,
+    fullscreen: bool,
 }
 
 impl<'a> App<'a> {
-    pub fn new(grid: Arc<Mutex<Grid>>, initial_code: Option<&str>) -> Self {
+    pub fn new(grid: Arc<Mutex<Grid>>, initial_code: Option<&str>, fullscreen: bool) -> Self {
         let mut textarea = TextArea::default();
         if let Some(code) = initial_code {
             for (i, line) in code.lines().enumerate() {
@@ -135,6 +144,7 @@ impl<'a> App<'a> {
             quit: false,
             help_visible: false,
             help_scroll_offset: 0,
+            fullscreen,
         }
     }
 
@@ -144,12 +154,21 @@ impl<'a> App<'a> {
 
     /// Returns true if the caller should run the code (needs terminal access).
     pub fn handle_event(&mut self, event: &Event) -> bool {
-        if let Event::Key(key) = event {
-            match self.mode {
-                Mode::Editor => return self.handle_editor_key(key),
-                Mode::Run => self.handle_run_key(key),
-                Mode::Open => self.handle_open_key(key),
+        match event {
+            Event::Key(key) => {
+                match self.mode {
+                    Mode::Editor => return self.handle_editor_key(key),
+                    Mode::Run => self.handle_run_key(key),
+                    Mode::Open => self.handle_open_key(key),
+                }
             }
+            Event::Resize(w, h) => {
+                if self.fullscreen {
+                    let new_grid = Grid::new(*w as usize, *h as usize);
+                    *self.grid.lock().unwrap() = new_grid;
+                }
+            }
+            Event::Tick => {}
         }
         false
     }
@@ -318,9 +337,17 @@ impl<'a> App<'a> {
     fn render_editor(&mut self, frame: &mut Frame, area: Rect) {
         self.textarea.set_cursor_line_style(Style::default().bg(Color::Rgb(50, 50, 50)));
 
+        // Read size info from grid (drop lock before further rendering)
+        let size_label = if self.fullscreen {
+            "fullscreen".to_string()
+        } else {
+            let g = self.grid.lock().unwrap();
+            format!("{}x{}", g.width, g.height)
+        };
+
         let title = Line::from(vec![
             Span::styled("pymodo", Style::new().fg(Color::Cyan).bold()),
-            Span::raw("  |  "),
+            Span::raw(format!("  |  screen: {}  |  ", size_label)),
             Span::styled("F1 / Ctrl+/: Help", Style::new().fg(Color::DarkGray)),
             Span::raw("  |  "),
             Span::styled("F5 / Ctrl+R: Run", Style::new().fg(Color::DarkGray)),
@@ -357,8 +384,11 @@ impl<'a> App<'a> {
 
         frame.render_widget(help_block, area);
 
+        let grid = self.grid.lock().unwrap();
+        let help_content = build_help_text(grid.width, grid.height);
+
         // Build the help text lines
-        let all_lines: Vec<Line> = HELP_CONTENT
+        let all_lines: Vec<Line> = help_content
             .lines()
             .map(|line| {
                 let trimmed = line.trim_end();
@@ -424,13 +454,22 @@ impl<'a> App<'a> {
     }
 
     fn render_run(&mut self, frame: &mut Frame, area: Rect) {
+        let grid = self.grid.lock().unwrap();
+        let grid_width = grid.width as u16;
+        let grid_height = grid.height as u16;
+
         if let Some(ref msg) = self.error_msg {
+            // Error mode: show grid on top, error bar at bottom
             let grid_area_height = area.height.saturating_sub(2);
             if grid_area_height > 0 {
-                let grid_area = Rect::new(area.x, area.y, area.width, grid_area_height);
-                let status_area = Rect::new(area.x, area.y + grid_area_height, area.width, area.height - grid_area_height);
+                let (grid_area, status_area) = if self.fullscreen {
+                    let grid_area = Rect::new(area.x, area.y, area.width, grid_area_height);
+                    let status_area = Rect::new(area.x, area.y + grid_area_height, area.width, 2);
+                    (grid_area, status_area)
+                } else {
+                    self.compute_centered_areas(area, grid_width, grid_height.saturating_sub(2))
+                };
 
-                let grid = self.grid.lock().unwrap();
                 frame.render_widget(GridView(&grid), grid_area);
 
                 let error_text = Paragraph::new(Line::from(msg.as_str()))
@@ -441,10 +480,61 @@ impl<'a> App<'a> {
                     .style(Style::new().fg(Color::Red).bg(Color::Black));
                 frame.render_widget(error_text, area);
             }
+        } else if !self.fullscreen && (grid_width < area.width || grid_height < area.height) {
+            // Non-fullscreen with smaller grid: center it
+            let centered_area = self.compute_centered_rect(area, grid_width, grid_height);
+            frame.render_widget(GridView(&grid), centered_area);
         } else {
-            let grid = self.grid.lock().unwrap();
+            // Fullscreen or grid fills terminal
             frame.render_widget(GridView(&grid), area);
         }
+    }
+
+    /// Compute a centered Rect within `area` for the given grid dimensions.
+    fn compute_centered_rect(&self, area: Rect, grid_width: u16, grid_height: u16) -> Rect {
+        let x_offset = if area.width > grid_width {
+            (area.width - grid_width) / 2
+        } else {
+            0
+        };
+        let y_offset = if area.height > grid_height {
+            (area.height - grid_height) / 2
+        } else {
+            0
+        };
+        Rect::new(
+            area.x + x_offset,
+            area.y + y_offset,
+            grid_width.min(area.width),
+            grid_height.min(area.height),
+        )
+    }
+
+    /// Compute centered grid and status areas within `area`.
+    fn compute_centered_areas(&self, area: Rect, grid_width: u16, grid_area_height: u16) -> (Rect, Rect) {
+        let total_height = grid_area_height + 2; // grid + status bar
+        let y_offset = if area.height > total_height {
+            (area.height - total_height) / 2
+        } else {
+            0
+        };
+        let x_offset = if area.width > grid_width {
+            (area.width - grid_width) / 2
+        } else {
+            0
+        };
+
+        let w = grid_width.min(area.width);
+        let h = grid_area_height.min(area.height.saturating_sub(2));
+        let grid_area = Rect::new(area.x + x_offset, area.y + y_offset, w, h);
+        let status_area = Rect::new(
+            area.x + x_offset,
+            grid_area.y + grid_area.height,
+            w,
+            2.min(area.height - (grid_area.y + grid_area.height - area.y)),
+        );
+
+        (grid_area, status_area)
     }
 
     fn render_open(&mut self, frame: &mut Frame, area: Rect) {

@@ -1,37 +1,38 @@
 use super::cell::Cell;
 use super::color::Color;
 
-pub const WIDTH: usize = 40;
-pub const HEIGHT: usize = 25;
-
 #[derive(Clone)]
 pub struct Grid {
     cells: Vec<Cell>,
+    pub width: usize,
+    pub height: usize,
 }
 
 impl Grid {
-    pub fn new() -> Self {
+    pub fn new(width: usize, height: usize) -> Self {
         Grid {
-            cells: vec![Cell::default(); WIDTH * HEIGHT],
+            cells: vec![Cell::default(); width * height],
+            width,
+            height,
         }
     }
 
-    fn idx(x: usize, y: usize) -> Option<usize> {
-        if x < WIDTH && y < HEIGHT {
-            Some(y * WIDTH + x)
+    fn idx(&self, x: usize, y: usize) -> Option<usize> {
+        if x < self.width && y < self.height {
+            Some(y * self.width + x)
         } else {
             None
         }
     }
 
     pub fn set(&mut self, x: usize, y: usize, ch: char, fg: Color, bg: Color) {
-        if let Some(i) = Self::idx(x, y) {
+        if let Some(i) = self.idx(x, y) {
             self.cells[i] = Cell::new(ch, fg, bg);
         }
     }
 
     pub fn get(&self, x: usize, y: usize) -> Option<&Cell> {
-        Self::idx(x, y).and_then(|i| self.cells.get(i))
+        self.idx(x, y).and_then(|i| self.cells.get(i))
     }
 
     pub fn clear(&mut self) {
@@ -41,15 +42,17 @@ impl Grid {
     }
 
     pub fn scroll(&mut self, n: usize) {
-        if n >= HEIGHT {
+        let w = self.width;
+        let h = self.height;
+        if n >= h {
             self.clear();
             return;
         }
-        let mut new_cells = vec![Cell::default(); WIDTH * HEIGHT];
-        for y in n..HEIGHT {
-            for x in 0..WIDTH {
-                let src = y * WIDTH + x;
-                let dst = (y - n) * WIDTH + x;
+        let mut new_cells = vec![Cell::default(); w * h];
+        for y in n..h {
+            for x in 0..w {
+                let src = y * w + x;
+                let dst = (y - n) * w + x;
                 new_cells[dst] = self.cells[src];
             }
         }
@@ -58,14 +61,16 @@ impl Grid {
 
     /// Print text at (x, y), advancing x and wrapping to next row when hitting the right edge.
     pub fn print(&mut self, text: &str, mut x: usize, mut y: usize, fg: Color, bg: Color) {
+        let w = self.width;
+        let h = self.height;
         for ch in text.chars() {
-            if x >= WIDTH {
+            if x >= w {
                 x = 0;
                 y += 1;
             }
-            if y >= HEIGHT {
+            if y >= h {
                 self.scroll(1);
-                y = HEIGHT - 1;
+                y = h - 1;
             }
             self.set(x, y, ch, fg, bg);
             x += 1;
@@ -74,11 +79,5 @@ impl Grid {
 
     pub fn rows(&self) -> &[Cell] {
         &self.cells
-    }
-}
-
-impl Default for Grid {
-    fn default() -> Self {
-        Self::new()
     }
 }
