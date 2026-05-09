@@ -94,6 +94,7 @@ for y in range({height}):
 --- Editor Shortcuts ---
 
 F1 / Ctrl+/   Toggle this help panel
+Esc           Close this help panel
 F5 / Ctrl+R Run the script
 Ctrl+S      Save file (or "Save As..." if new)
 Ctrl+O      Open a file
@@ -247,6 +248,9 @@ impl<'a> App<'a> {
             // When help is visible, handle scrolling with arrow keys and page up/down
             _ if self.help_visible => {
                 match key.code {
+                    KeyCode::Esc => {
+                        self.help_visible = false;
+                    }
                     KeyCode::Up => {
                         self.help_scroll_offset = self.help_scroll_offset.saturating_sub(1);
                     }
@@ -517,7 +521,7 @@ impl<'a> App<'a> {
 
     fn render_help_panel(&mut self, frame: &mut Frame, area: Rect) {
         let help_block = Block::bordered().title(Line::from(vec![
-            Span::styled(" Help (Up/Down to scroll) ", Style::new().fg(Color::Cyan).bold()),
+            Span::styled(" Help (Up/Down to scroll, Esc to close) ", Style::new().fg(Color::Cyan).bold()),
         ]));
         let inner = help_block.inner(area);
 
