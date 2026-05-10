@@ -295,15 +295,21 @@ impl StatefulWidget for CodeEditor<'_> {
         let visible_height = area.height as usize;
         let visible_width = area.width as usize;
 
-        // Calculate scroll to keep cursor in view
-        let scroll_padding = 2;
-        let scroll_offset = if cursor_row >= total_lines.saturating_sub(visible_height) {
-            cursor_row.saturating_sub(visible_height).saturating_sub(scroll_padding)
-        } else if cursor_row < scroll_padding + visible_height {
-            0
-        } else {
-            cursor_row.saturating_sub(visible_height / 2)
-        };
+        // Calculate scroll offset: keep the cursor centered vertically,
+        // but clamp so it never leaves the viewport.
+        // This single formula is continuous — no jumps at band boundaries.
+        let mut scroll_offset = cursor_row.saturating_sub(visible_height / 2);
+        let max_offset = total_lines.saturating_sub(visible_height);
+        scroll_offset = scroll_offset.min(max_offset);
+        // If the cursor is above the top of the viewport, reduce offset.
+        if cursor_row < scroll_offset {
+            scroll_offset = cursor_row;
+        }
+        // If the cursor is below the bottom of the viewport, increase offset.
+        let visual_row = cursor_row - scroll_offset;
+        if visual_row >= visible_height {
+            scroll_offset += visual_row - visible_height + 1;
+        }
 
         let cursor_bg = Color::Rgb(50, 50, 50);
 
@@ -355,9 +361,11 @@ impl StatefulWidget for CodeEditor<'_> {
                 cell.reset();
             }
 
-            // Draw cursor: apply REVERSED style to the cursor character
+            // Draw cursor at the current column, clamped within the visible area.
+            // Clamp to visible_width - 1 so we never index past the right edge of the buffer.
             if is_cursor_line {
-                let cx = area.x + (cursor_col.min(visible_width)) as u16;
+                let max_col = (visible_width - 1).min(line_text.chars().count());
+                let cx = area.x + cursor_col.min(max_col) as u16;
                 let cell = &mut buffer[(cx, y)];
                 if cursor_col >= line_text.chars().count() {
                     cell.set_char(' ');

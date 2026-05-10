@@ -9,7 +9,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
-use ratatui_textarea::TextArea;
+use ratatui_textarea::{CursorMove, DataCursor, TextArea};
 
 use crate::event::Event;
 use crate::grid::Grid;
@@ -141,6 +141,8 @@ pub struct App<'a> {
     help_visible: bool,
     help_scroll_offset: usize,
     fullscreen: bool,
+    /// Remembered column so the cursor snaps back after crossing empty lines.
+    desired_cursor_col: usize,
 }
 
 impl<'a> App<'a> {
@@ -176,6 +178,7 @@ impl<'a> App<'a> {
             help_visible: false,
             help_scroll_offset: 0,
             fullscreen,
+            desired_cursor_col: 0,
         }
     }
 
@@ -248,6 +251,7 @@ impl<'a> App<'a> {
             (KeyCode::Char('n'), true) => {
                 self.textarea = TextArea::default();
                 self.current_file_path = None;
+                self.desired_cursor_col = 0;
                 self.autosave_unsaved();
             }
             // Ctrl+C => Quit
@@ -278,12 +282,44 @@ impl<'a> App<'a> {
                     }
                 }
             }
+            // Up / Down — preserve column across empty lines
+            (KeyCode::Up, _) | (KeyCode::Down, _) => {
+                self.move_cursor_vertical(key.code);
+            }
+            // Horizontal movement updates the remembered column
+            (KeyCode::Left, _) | (KeyCode::Right, _) | (KeyCode::Home, _) | (KeyCode::End, _) => {
+                self.textarea.input(*key);
+                let DataCursor(_, col) = self.textarea.cursor();
+                self.desired_cursor_col = col;
+                self.autosave_unsaved();
+            }
             _ => {
                 self.textarea.input(*key);
                 self.autosave_unsaved();
             }
         }
         false
+    }
+
+    /// Move the cursor up or down while preserving the desired column.
+    fn move_cursor_vertical(&mut self, direction: KeyCode) {
+        // Move vertically
+        self.textarea.move_cursor(if direction == KeyCode::Up {
+            CursorMove::Up
+        } else {
+            CursorMove::Down
+        });
+
+        // After the vertical move, try to restore the remembered column.
+        let DataCursor(row, cur_col) = self.textarea.cursor();
+        let lines = self.textarea.lines();
+        let line_len = if row < lines.len() { lines[row].chars().count() } else { 0 };
+        let target = self.desired_cursor_col.min(line_len);
+
+        // Move right to reach the desired column
+        for _ in cur_col..target {
+            self.textarea.move_cursor(CursorMove::Forward);
+        }
     }
 
     fn run_key(&mut self, _key: &crossterm::event::KeyEvent) {
