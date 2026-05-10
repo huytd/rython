@@ -4,3 +4,6 @@ An interactive Python programming environemnt, good for who want to learn the la
 
 https://github.com/user-attachments/assets/a77bda01-a0e9-4d18-a84e-97d62b9edabd
 
+## LLM Disclosure
+
+Yep, I use LLM to build this. Running Qwen3.6 27B IQ4_XS on my RTX 5060 Ti 16 GB.
