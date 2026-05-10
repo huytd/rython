@@ -15,6 +15,7 @@ use crate::event::Event;
 use crate::grid::Grid;
 use crate::python::Screen;
 use crate::tui::grid_view::GridView;
+use crate::tui::highlight::CodeEditor;
 
 fn unsaved_path() -> std::path::PathBuf {
     let mut path = dirs::home_dir().expect("Could not determine home directory");
@@ -471,9 +472,7 @@ impl<'a> App<'a> {
         }
     }
 
-    fn render_editor(&mut self, frame: &mut Frame, area: Rect) {
-        self.textarea.set_cursor_line_style(Style::default().bg(Color::Rgb(50, 50, 50)));
-
+        fn render_editor(&mut self, frame: &mut Frame, area: Rect) {
         // Read size info from grid (drop lock before further rendering)
         let size_label = if self.fullscreen {
             "fullscreen".to_string()
@@ -520,10 +519,22 @@ impl<'a> App<'a> {
                 Constraint::Percentage(40),
             ]).split(inner);
 
-            frame.render_widget(&self.textarea, chunks[0]);
+            frame.render_stateful_widget(
+                CodeEditor {
+                    textarea: &self.textarea,
+                },
+                chunks[0],
+                &mut (),
+            );
             self.render_help_panel(frame, chunks[1]);
         } else {
-            frame.render_widget(&self.textarea, inner);
+            frame.render_stateful_widget(
+                CodeEditor {
+                    textarea: &self.textarea,
+                },
+                inner,
+                &mut (),
+            );
         }
     }
 
