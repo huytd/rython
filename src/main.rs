@@ -50,7 +50,7 @@ fn parse_args() -> CliArgs {
                 i += 1;
             }
             "--help" | "-h" => {
-                println!("Usage: pymodo [OPTIONS] [file.py]");
+                println!("Usage: rython [OPTIONS] [file.py]");
                 println!();
                 println!("Options:");
                 println!("  --size WIDTH HEIGHT   Set custom screen size (default: {}x{})", DEFAULT_WIDTH, DEFAULT_HEIGHT);
@@ -83,7 +83,7 @@ fn parse_args() -> CliArgs {
 
 fn unsaved_path() -> PathBuf {
     let mut path = dirs::home_dir().expect("Could not determine home directory");
-    path.push(".pymodo");
+    path.push(".rython");
     path.push("unsaved");
     path
 }

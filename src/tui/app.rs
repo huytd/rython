@@ -19,7 +19,7 @@ use crate::tui::highlight::CodeEditor;
 
 fn unsaved_path() -> std::path::PathBuf {
     let mut path = dirs::home_dir().expect("Could not determine home directory");
-    path.push(".pymodo");
+    path.push(".rython");
     path.push("unsaved");
     path
 }
@@ -27,7 +27,7 @@ fn unsaved_path() -> std::path::PathBuf {
 fn build_help_text(width: usize, height: usize) -> String {
     format!(
         r##"
-=== pymodo Python API Reference ===
+=== rython Python API Reference ===
 
 The screen object is available globally. No imports needed.
 Canvas: {width} columns (x) x {height} rows (y), origin (0,0) = top-left.
@@ -522,13 +522,13 @@ impl<'a> App<'a> {
             std::path::Path::new(path)
                 .file_name()
                 .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_else(|| "pymodo".to_string())
+                .unwrap_or_else(|| "rython".to_string())
         } else {
             "Unsaved".to_string()
         };
 
         let title = Line::from(vec![
-            Span::styled("pymodo", Style::new().fg(Color::Cyan).bold()),
+            Span::styled("rython", Style::new().fg(Color::Cyan).bold()),
             Span::raw(format!("  |  {}  |  screen: {}  |  ", file_label, size_label)),
             Span::styled("F1 / Ctrl+/: Help", Style::new().fg(Color::DarkGray)),
             Span::raw("  |  "),

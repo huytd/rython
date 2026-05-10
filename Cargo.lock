@@ -939,17 +939,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pymodo"
-version = "0.1.0"
-dependencies = [
- "crossterm",
- "dirs",
- "pyo3",
- "ratatui",
- "ratatui-textarea",
-]
-
-[[package]]
 name = "pyo3"
 version = "0.28.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1217,6 +1206,17 @@ name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
+
+[[package]]
+name = "rython"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "dirs",
+ "pyo3",
+ "ratatui",
+ "ratatui-textarea",
+]
 
 [[package]]
 name = "ryu"

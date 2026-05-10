@@ -1,12 +1,12 @@
-# pymodo Python API Guide
+# rython Python API Guide
 
-pymodo gives your Python scripts access to a `screen` object — a 40×25 pixel-art canvas rendered in the terminal. Write code in the built-in editor, press **F5** (or **Ctrl+R**) to run, and see your output immediately.
+rython gives your Python scripts access to a `screen` object — a 40×25 pixel-art canvas rendered in the terminal. Write code in the built-in editor, press **F5** (or **Ctrl+R**) to run, and see your output immediately.
 
 ## Quick Start
 
 ```python
 screen.clear()
-screen.print("Hello, pymodo!", 10, 12, "white", "blue")
+screen.print("Hello, rython!", 10, 12, "white", "blue")
 for i in range(10):
     screen.set(i, 0, "*", "cyan", "black")
 ```
