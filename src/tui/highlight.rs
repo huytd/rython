@@ -127,8 +127,10 @@ pub fn highlight_line(line: &str) -> Vec<Span<'_>> {
                     }
                 }
             }
-            j += 1;
-            let string: String = chars[i..j].iter().collect();
+            if j <= len {
+                j += 1;
+            }
+            let string: String = chars[i..j.min(len)].iter().collect();
             spans.push(Span::styled(string, TokenType::String.style()));
             i = j;
             continue;
@@ -164,11 +166,14 @@ pub fn highlight_line(line: &str) -> Vec<Span<'_>> {
                     j += 1;
                 }
             }
-            j += 1;
+            if j <= len {
+                j += 1;
+            }
             let prefix_quote: String = chars[i..i + 2].iter().collect();
             spans.push(Span::styled(prefix_quote, TokenType::String.style()));
-            if j > i + 2 {
-                let closing: String = chars[j - 1..j].iter().collect();
+            let j_clamped = j.min(len);
+            if j_clamped > i + 2 {
+                let closing: String = chars[j_clamped - 1..j_clamped].iter().collect();
                 spans.push(Span::styled(closing, TokenType::String.style()));
             }
             i = j;
