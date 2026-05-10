@@ -293,6 +293,22 @@ impl<'a> App<'a> {
                 self.desired_cursor_col = col;
                 self.autosave_unsaved();
             }
+            // Enter — preserve indentation on the new line
+            (KeyCode::Enter, _) => {
+                let DataCursor(row, _) = self.textarea.cursor();
+                let lines = self.textarea.lines();
+                let indent = if row < lines.len() {
+                    lines[row].chars().take_while(|c| c.is_whitespace()).count()
+                } else {
+                    0
+                };
+                self.textarea.input(*key);
+                // Move cursor forward by the indentation amount
+                for _ in 0..indent {
+                    self.textarea.insert_char(' ');
+                }
+                self.autosave_unsaved();
+            }
             _ => {
                 self.textarea.input(*key);
                 self.autosave_unsaved();
