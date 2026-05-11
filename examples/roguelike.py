@@ -1,143 +1,82 @@
-# Minimal Roguelike — collect all coins and escape!
-# Arrow keys or WASD to move. R to restart. Q to quit.
+# Roguelike Demo — Dungeon with player movement
 
-W, H = 40, 25
-WALL, FLOOR, COIN, PLAYER, EXIT = '#', '.', '$', '@', '>',
+import time, random
 
-# --- level layout ---
-map_data = [
-  "########################################",
-  "#                                      #",
-  "#  #######    ### ####   ########      #",
-  "#  #     #    #      #   #      #      #",
-  "#  #  $  #    #  $   #   #   $  #      #",
-  "#  # #####    ##### ##   ### ####      #",
-  "#                                      #",
-  "#  #######    ########   ### ####      #",
-  "#  #     #    #      #   #      #      #",
-  "#  #             $   #   #   $  #      #",
-  "#  #  $  #    #      #   #      #      #",
-  "#  #######    ########   ########      #",
-  "#                                      #",
-  "#  #######    ########   ########      #",
-  "#        #    #          #      #      #",
-  "#  #  $  #    #      #        $ #      #",
-  "#  #     #    #  $   #   #      #      #",
-  "#  #######    ########   ########      #",
-  "#                                      #",
-  "#          ###############             #",
-  "#          #             #             #",
-  "#          #       $                   #",
-  "#          #     >       #             #",
-  "#          ###############             #",
-  "########################################",
-]
+screen.cls()
 
-# --- parse map ---
-walls = set()
-coins_template = set()
-for r, row in enumerate(map_data):
-    for c, ch in enumerate(row):
-        if ch == WALL: walls.add((c, r))
-        elif ch == COIN: coins_template.add((c, r))
+# Dungeon dimensions
+W, H = 30, 15
+OX, OY = 4, 8  # offset on canvas
 
-# game state
-player_x, player_y = 1, 1
-coins = set(coins_template)
-score = 0
-total_coins = len(coins)
-message = "Collect all coins and reach the exit!"
-game_over = False
-win = False
-turns = 0
+# Generate dungeon grid
+dungeon = []
+for y in range(H):
+    row = []
+    for x in range(W):
+        if x == 0 or x == W-1 or y == 0 or y == H-1:
+            row.append('#')  # wall
+        else:
+            row.append('.')  # floor
+    dungeon.append(row)
 
-KEYS_UP    = {"up", "w", "k"}
-KEYS_DOWN  = {"down", "s", "j"}
-KEYS_LEFT  = {"left", "a", "h"}
-KEYS_RIGHT = {"right", "d", "l"}
+# Place some random walls
+for _ in range(40):
+    wx = random.randint(2, W-3)
+    wy = random.randint(2, H-3)
+    dungeon[wy][wx] = '#'
 
+# Place player
+px, py = 15, 7
+dungeon[py][px] = '@'
+
+# Place items
+items = []
+for _ in range(8):
+    ix, iy = random.randint(1, W-2), random.randint(1, H-2)
+    if dungeon[iy][ix] == '.':
+        items.append((ix, iy))
+        dungeon[iy][ix] = '*'
+
+# Color map
+def tile_color(ch):
+    if ch == '#': return "gray"
+    if ch == '.': return "darkgray"
+    if ch == '@': return "green"
+    if ch == '*': return "yellow"
+    return "white"
 
 def render():
-    screen.clear()
+    for y in range(H):
+        for x in range(W):
+            screen.set(x * 8 + OX, y * 8 + OY, dungeon[y][x], tile_color(dungeon[y][x]), "black")
+    screen.text(f"Pos: ({px},{py})", OX, (H+1)*8 + OY, 1, "cyan")
 
-    for x in range(W):
-        for y in range(H):
-            ch, fg = ' ', 'black'
-            if (x, y) == (player_x, player_y):
-                ch, fg = PLAYER, 'lightgreen'
-            elif (x, y) in coins:
-                ch, fg = COIN, 'yellow'
-            elif exit_pos and (x, y) == exit_pos:
-                ch, fg = EXIT, 'cyan'
-            elif (x, y) in walls:
-                ch, fg = WALL, 'gray'
-            else:
-                ch, fg = FLOOR, 'darkgray'
-            screen.set(x, y, ch, fg, 'black')
-
-    # HUD
-    hud = f"Score: {score}/{total_coins}  Turns: {turns}  "
-    if game_over:
-        hud += "YOU WIN! Press R or Q." if win else "GAME OVER. Press R or Q."
-    else:
-        hud += message
-
-    screen.print(hud, 0, H - 1, 'white', 'blue')
-    screen.print("Arrow/WASD: Move  |  R: Restart  |  Q: Quit", 0, H - 2, 'gray', 'black')
-    screen.refresh()
-
-
-def reset():
-    global player_x, player_y, coins, score, message, game_over, win, turns, exit_pos
-    player_x, player_y = 1, 1
-    coins = set(coins_template)
-    score = 0
-    turns = 0
-    message = "Collect all coins and reach the exit!"
-    game_over = False
-    win = False
-    exit_pos = None
-
-
-exit_pos = None
-
-while True:
-    key = screen.read_key()
-
-    if key in ("q", "Q"):
-        break
-    if key in ("r", "R") and game_over:
-        reset()
-        render()
-        continue
-
-    if not game_over:
-        dx, dy = 0, 0
-        if key in KEYS_UP:    dy = -1
-        elif key in KEYS_DOWN: dy = 1
-        elif key in KEYS_LEFT: dx = -1
-        elif key in KEYS_RIGHT: dx = 1
-
-        if dx or dy:
-            nx, ny = player_x + dx, player_y + dy
-            if (nx, ny) not in walls and 0 <= nx < W and 0 <= ny < H:
-                player_x, player_y = nx, ny
-                turns += 1
-
-                if (player_x, player_y) in coins:
-                    coins.discard((player_x, player_y))
-                    score += 1
-                    message = f"+1 coin! ({score}/{total_coins})"
-
-                if not coins and exit_pos is None:
-                    exit_pos = (20, 22)
-                    message = "Exit revealed! Find the > symbol!"
-
-                if exit_pos and (player_x, player_y) == exit_pos:
-                    game_over = True
-                    win = True
-                    message = f"Escaped in {turns} turns!"
-            else:
-                message = "Bump! Can't go there."
-
+steps = 0
+for frame in range(500):
     render()
+
+    # Move player based on input
+    key = screen.read_key()
+    nx, ny = px, py
+    if key == "left" or key == "a": nx -= 1
+    elif key == "right" or key == "d": nx += 1
+    elif key == "up" or key == "w": ny -= 1
+    elif key == "down" or key == "s": ny += 1
+
+    if (nx >= 0 and nx < W and ny >= 0 and ny < H and dungeon[ny][nx] != '#'):
+        dungeon[py][px] = '.'
+        px, py = nx, ny
+        dungeon[py][px] = '@'
+        steps += 1
+
+    # Check item pickup
+    for i, (ix, iy) in enumerate(items[:]):
+        if ix == px and iy == py:
+            items.pop(i)
+            dungeon[iy][ix] = '.'
+
+    screen.refresh()
+    time.sleep(0.08)
+
+screen.cls()
+screen.text(f"  Explored {steps} steps!", 48, 60, 1, "green")

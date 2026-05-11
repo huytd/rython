@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rython — Retro Python Console</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:        #1a1a2e;
+    --surface:   #16213e;
+    --border:    #0f3460;
+    --text:      #e0e0e0;
+    --accent:    #e94560;
+    --green:     #53d769;
+    --canvas-bg: #000000;
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ─────────────────────────────────── */
+  #header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  #header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1px;
+  }
+  #header h1 span { color: var(--text); font-weight: 400; }
+  .header-btn {
+    padding: 6px 18px;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter .15s;
+  }
+  .header-btn:hover { filter: brightness(1.2); }
+  #run-btn   { background: var(--green); color: #111; }
+  #stop-btn  { background: var(--accent); color: #fff; display: none; }
+  #help-btn  { background: var(--border); color: var(--text); margin-left: auto; }
+
+  /* ── Main layout ────────────────────────────── */
+  #main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* Editor panel */
+  #editor-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-right: 2px solid var(--border);
+    min-width: 0;
+  }
+  #editor-panel .panel-title {
+    padding: 6px 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #888;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  #editor-wrap {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Display panel */
+  #display-panel {
+    width: 50%;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  #display-panel .panel-title {
+    padding: 6px 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #888;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+  }
+  #canvas-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--canvas-bg);
+    overflow: hidden;
+    position: relative;
+  }
+  #display-canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  /* Status bar */
+  #status-bar {
+    padding: 4px 16px;
+    font-size: 11px;
+    color: #888;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #status-bar .error { color: var(--accent); }
+
+  /* Loading overlay */
+  #loading {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 999;
+    transition: opacity .4s;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  #loading .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Help overlay */
+  #help-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  #help-overlay.visible { display: flex; }
+  #help-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    max-width: 560px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  #help-box h2 { color: var(--accent); margin-bottom: 8px; font-size: 16px; }
+  #help-box h3 { color: var(--green); margin: 12px 0 4px; font-size: 14px; }
+  #help-box code {
+    background: #111;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 12px;
+  }
+  #help-box pre {
+    background: #111;
+    padding: 10px 14px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 6px 0;
+  }
+  #help-box pre code { background: none; padding: 0; }
+  #close-help {
+    margin-top: 12px;
+    padding: 6px 18px;
+    background: var(--border);
+    color: var(--text);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  /* Ace Editor overrides */
+  #editor-wrap .ace_editor { font-size: 13px; height: 100%; }
+  .ace_gutter { background: var(--surface) !important; border-right: 1px solid var(--border) !important; }
+  .ace_scroller { margin: 0 !important; }
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loading">
+  <div class="spinner"></div>
+  <div>Loading Pyodide…</div>
+</div>
+
+<!-- Header -->
+<div id="header">
+  <h1>rython <span>— retro python console</span></h1>
+  <button class="header-btn" id="run-btn">▶ Run</button>
+  <button class="header-btn" id="stop-btn">■ Stop</button>
+  <button class="header-btn" id="help-btn">? Help</button>
+</div>
+
+<!-- Main -->
+<div id="main">
+  <div id="editor-panel">
+    <div class="panel-title">Editor</div>
+    <div id="editor-wrap"></div>
+  </div>
+  <div id="display-panel">
+    <div class="panel-title">
+      <span>Display — 240 × 136</span>
+      <span id="fps-display"></span>
+    </div>
+    <div id="canvas-wrap">
+      <canvas id="display-canvas" width="240" height="136"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Status -->
+<div id="status-bar">Ready — press ▶ Run or Ctrl+Enter to execute</div>
+
+<!-- Help overlay -->
+<div id="help-overlay">
+  <div id="help-box">
+    <h2>rython API Reference</h2>
+
+    <h3>Canvas</h3>
+    <p>240 columns (x) × 136 rows (y), origin (0,0) = top-left.</p>
+
+    <h3>Pixel Drawing</h3>
+    <pre><code>screen.cls()
+screen.pix(x, y, color)
+screen.line(x1, y1, x2, y2, color)
+screen.rect(x, y, w, h, color, fill)
+screen.circ(x, y, radius, color, fill)
+screen.text(str, x, y, size, color)</code></pre>
+
+    <h3>Backward-Compatible</h3>
+    <pre><code>screen.set(x, y, ch, fg, bg)
+screen.print(text, x, y, fg, bg)
+screen.clear()
+screen.scroll(n)
+screen.refresh()</code></pre>
+
+    <h3>Colors</h3>
+    <p>C64 palette names: <code>black</code> <code>white</code> <code>red</code> <code>green</code> <code>blue</code> <code>cyan</code> <code>purple</code> <code>yellow</code> <code>orange</code> <code>brown</code> <code>lightred</code> <code>darkgray</code> <code>gray</code> <code>lightgreen</code> <code>lightblue</code> <code>lightgray</code></p>
+    <p>Or full RGB: <code>"#ff8800"</code>, <code>(255, 136, 0)</code></p>
+
+    <h3>Input</h3>
+    <pre><code>key = screen.read_key()
+screen.mouse_x, screen.mouse_y
+screen.is_mouse_down()</code></pre>
+
+    <h3>Quick Example</h3>
+    <pre><code>import time, math
+for t in range(60):
+    screen.cls()
+    for x in range(240):
+        y = int(68 + math.sin(x * 0.05 + t * 0.1) * 30)
+        screen.line(x, y, x, y + 2, "#53d769")
+    screen.text(f"frame {t}", 4, 4, 1, "white")
+    screen.refresh()
+    time.sleep(0.03)</code></pre>
+
+    <button id="close-help">Close</button>
+  </div>
+</div>
+
+<!-- Pyodide (official CDN) -->
+<!-- Pyodide — try official CDN first, fallback to jsdelivr -->
+<script>
+  // Use multiple CDN sources for reliability
+  const pyodideSources = [
+    "https://cdn.jsdelivr.net/pyodide/v0.27.1/full/pyodide.js",
+    "https://unpkg.com/pyodide@0.27.1/pyodide.js",
+  ];
+  let pyodideLoaded = false;
+  async function loadPyodideScript() {
+    for (const src of pyodideSources) {
+      try {
+        const s = document.createElement("script");
+        s.src = src;
+        await new Promise((resolve, reject) => {
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+        if (typeof loadPyodide !== "undefined") { pyodideLoaded = true; return; }
+      } catch(e) { console.warn("Pyodide CDN failed:", src); }
+    }
+    throw new Error("Could not load Pyodide from any CDN");
+  }
+</script>
+<!-- Ace Editor (cdnjs, no ESM/CORS issues) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.min.js"></script>
+<script>
+
+/* ═══════════════════════════════════════════════════════════
+   BITMAP FONT — 8×8 pixels per glyph, printable ASCII 32-126
+   ═══════════════════════════════════════════════════════════ */
+// Each entry = array of 8 bytes (one per row), bit 7 = leftmost pixel
+const FONT = {
+  // Space
+  32: [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00],
+  // !
+  33: [0x00,0x00,0x00,0x1f,0x1f,0x00,0x00,0x00],
+  // "
+  34: [0x15,0x15,0x15,0x00,0x00,0x00,0x00,0x00],
+  // #
+  35: [0x11,0x7f,0x11,0x7f,0x11,0x00,0x00,0x00],
+  // $
+  36: [0x08,0x3e,0x20,0x1c,0x22,0x7e,0x02,0x00],
+  // %
+  37: [0x22,0x41,0x00,0x00,0x00,0x14,0x08,0x71],
+  // &
+  38: [0x00,0x27,0x45,0x45,0x3d,0x49,0x71,0x00],
+  // '
+  39: [0x00,0x00,0x00,0x0f,0x08,0x00,0x00,0x00],
+  // (
+  40: [0x00,0x1c,0x3e,0x60,0x60,0x3e,0x1c,0x00],
+  // )
+  41: [0x00,0x3e,0x1c,0x06,0x06,0x1c,0x3e,0x00],
+  // *
+  42: [0x00,0x2a,0x1c,0x7f,0x1c,0x2a,0x00,0x00],
+  // +
+  43: [0x00,0x14,0x14,0x7e,0x14,0x14,0x00,0x00],
+  // ,
+  44: [0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x10],
+  // -
+  45: [0x00,0x00,0x00,0x7e,0x00,0x00,0x00,0x00],
+  // .
+  46: [0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x00],
+  // /
+  47: [0x00,0x02,0x04,0x08,0x10,0x20,0x40,0x00],
+  // 0
+  48: [0x3e,0x63,0x49,0x49,0x49,0x49,0x3e,0x00],
+  // 1
+  49: [0x00,0x20,0x7c,0x20,0x20,0x20,0x7e,0x00],
+  // 2
+  50: [0x3e,0x63,0x01,0x18,0x60,0x20,0x7f,0x00],
+  // 3
+  51: [0x7f,0x48,0x10,0x38,0x08,0x48,0x3f,0x00],
+  // 4
+  52: [0x00,0x18,0x3c,0x66,0x7f,0x06,0x00,0x00],
+  // 5
+  53: [0x7f,0x20,0x18,0x7c,0x04,0x18,0x3f,0x00],
+  // 6
+  54: [0x3e,0x48,0x54,0x7c,0x44,0x48,0x30,0x00],
+  // 7
+  55: [0x7f,0x44,0x28,0x10,0x10,0x10,0x10,0x00],
+  // 8
+  56: [0x38,0x44,0x44,0x38,0x44,0x44,0x38,0x00],
+  // 9
+  57: [0x7c,0x44,0x44,0x44,0x38,0x44,0x38,0x00],
+  // :
+  58: [0x00,0x00,0x18,0x00,0x00,0x18,0x00,0x00],
+  // ;
+  59: [0x00,0x00,0x18,0x00,0x00,0x18,0x18,0x10],
+  // <
+  60: [0x00,0x08,0x14,0x22,0x41,0x22,0x14,0x08],
+  // =
+  61: [0x00,0x00,0x7e,0x00,0x00,0x7e,0x00,0x00],
+  // >
+  62: [0x08,0x14,0x22,0x41,0x22,0x14,0x08,0x00],
+  // ?
+  63: [0x02,0x11,0x49,0x49,0x09,0x08,0x00,0x00],
+  // @
+  64: [0x3e,0x43,0x5d,0x55,0x55,0x55,0x42,0x00],
+  // A
+  65: [0x00,0x7e,0x11,0x11,0x7e,0x11,0x11,0x00],
+  // B
+  66: [0x41,0x7f,0x49,0x49,0x49,0x41,0x7e,0x00],
+  // C
+  67: [0x00,0x7f,0x41,0x41,0x41,0x41,0x3e,0x00],
+  // D
+  68: [0x41,0x7f,0x49,0x45,0x43,0x41,0x7e,0x00],
+  // E
+  69: [0x41,0x7f,0x49,0x49,0x49,0x49,0x41,0x00],
+  // F
+  70: [0x41,0x7f,0x49,0x49,0x49,0x41,0x41,0x00],
+  // G
+  71: [0x00,0x7f,0x41,0x49,0x59,0x41,0x3e,0x00],
+  // H
+  72: [0x41,0x41,0x41,0x7f,0x41,0x41,0x41,0x00],
+  // I
+  73: [0x00,0x00,0x7f,0x00,0x00,0x00,0x00,0x00],
+  // J
+  74: [0x00,0x01,0x01,0x01,0x79,0x09,0x06,0x00],
+  // K
+  75: [0x41,0x79,0x49,0x45,0x43,0x41,0x41,0x00],
+  // L
+  76: [0x41,0x41,0x41,0x41,0x41,0x41,0x7f,0x00],
+  // M
+  77: [0x7f,0x49,0x45,0x45,0x45,0x49,0x7f,0x00],
+  // N
+  78: [0x41,0x79,0x45,0x45,0x45,0x45,0x41,0x00],
+  // O
+  79: [0x00,0x3e,0x41,0x41,0x41,0x41,0x3e,0x00],
+  // P
+  80: [0x7f,0x49,0x49,0x49,0x49,0x41,0x7e,0x00],
+  // Q
+  81: [0x00,0x3e,0x41,0x51,0x51,0x49,0x46,0x18],
+  // R
+  82: [0x7f,0x49,0x49,0x49,0x45,0x43,0x41,0x00],
+  // S
+  83: [0x00,0x7e,0x49,0x3c,0x06,0x49,0x7e,0x00],
+  // T
+  84: [0x10,0x10,0x10,0x7f,0x10,0x10,0x10,0x00],
+  // U
+  85: [0x41,0x41,0x41,0x41,0x41,0x41,0x3e,0x00],
+  // V
+  86: [0x41,0x41,0x41,0x41,0x41,0x22,0x14,0x08],
+  // W
+  87: [0x41,0x41,0x45,0x45,0x45,0x49,0x7f,0x00],
+  // X
+  88: [0x41,0x41,0x22,0x14,0x22,0x41,0x41,0x00],
+  // Y
+  89: [0x08,0x14,0x22,0x41,0x41,0x41,0x7f,0x00],
+  // Z
+  90: [0x7f,0x40,0x28,0x14,0x0a,0x04,0x7f,0x00],
+  // [
+  91: [0x00,0x3e,0x61,0x41,0x41,0x41,0x3e,0x00],
+  // \
+  92: [0x00,0x40,0x20,0x10,0x08,0x04,0x02,0x00],
+  // ]
+  93: [0x00,0x3e,0x41,0x41,0x41,0x61,0x3e,0x00],
+  // ^
+  94: [0x08,0x14,0x22,0x41,0x00,0x00,0x00,0x00],
+  // _
+  95: [0x00,0x00,0x00,0x00,0x00,0x00,0xff,0x00],
+  // `
+  96: [0x00,0x00,0x1e,0x18,0x00,0x00,0x00,0x00],
+  // a
+  97: [0x00,0x3e,0x48,0x48,0x48,0x54,0x42,0x00],
+  // b
+  98: [0x41,0x7f,0x49,0x49,0x49,0x49,0x41,0x00],
+  // c
+  99: [0x00,0x3e,0x41,0x41,0x41,0x41,0x22,0x00],
+  // d
+  100:[0x82,0x7f,0x4a,0x4a,0x4a,0x4a,0x3d,0x00],
+  // e
+  101:[0x00,0x3e,0x49,0x55,0x49,0x45,0x3e,0x00],
+  // f
+  102:[0x00,0x04,0x3f,0x44,0x44,0x44,0x38,0x00],
+  // g
+  103:[0x00,0x7c,0x4a,0x4a,0x4a,0x52,0x3c,0x00],
+  // h
+  104:[0x41,0x7f,0x49,0x49,0x49,0x49,0x41,0x00],
+  // i
+  105:[0x00,0x02,0x02,0x7e,0x02,0x02,0x00,0x00],
+  // j
+  106:[0x00,0x02,0x02,0x02,0x7a,0x0a,0x04,0x00],
+  // k
+  107:[0x41,0x79,0x49,0x45,0x43,0x41,0x41,0x00],
+  // l
+  108:[0x00,0x00,0x7f,0x00,0x00,0x00,0x00,0x00],
+  // m
+  109:[0x41,0x7f,0x4a,0x4a,0x4a,0x4a,0x41,0x00],
+  // n
+  110:[0x41,0x7f,0x49,0x49,0x49,0x49,0x41,0x00],
+  // o
+  111:[0x00,0x3e,0x41,0x41,0x41,0x41,0x3e,0x00],
+  // p
+  112:[0x00,0x7f,0x49,0x49,0x49,0x49,0x41,0x7e],
+  // q
+  113:[0x00,0x7e,0x49,0x49,0x49,0x49,0x82,0x7d],
+  // r
+  114:[0x41,0x7f,0x48,0x44,0x44,0x44,0x44,0x00],
+  // s
+  115:[0x00,0x7e,0x49,0x3c,0x06,0x49,0x7e,0x00],
+  // t
+  116:[0x00,0x38,0x44,0x7f,0x44,0x44,0x28,0x00],
+  // u
+  117:[0x41,0x7f,0x49,0x49,0x49,0x49,0x3e,0x00],
+  // v
+  118:[0x41,0x41,0x41,0x41,0x41,0x22,0x14,0x08],
+  // w
+  119:[0x41,0x7f,0x4a,0x4a,0x4a,0x4a,0x3e,0x00],
+  // x
+  120:[0x41,0x41,0x22,0x14,0x22,0x41,0x41,0x00],
+  // y
+  121:[0x00,0x7e,0x49,0x49,0x49,0x51,0x3c,0x00],
+  // z
+  122:[0x7f,0x40,0x28,0x14,0x0a,0x04,0x7f,0x00],
+  // {
+  123:[0x00,0x1c,0x3e,0x61,0x41,0x3e,0x1c,0x00],
+  // |
+  124:[0x00,0x00,0x7f,0x00,0x00,0x00,0x00,0x00],
+  // }
+  125:[0x00,0x1c,0x3e,0x41,0x41,0x3e,0x1c,0x00],
+  // ~
+  126:[0x00,0x08,0x34,0x42,0x81,0x00,0x00,0x00],
+};
+
+/* ═══════════════════════════════════════════════════════════
+   C64 COLOR PALETTE
+   ═══════════════════════════════════════════════════════════ */
+const C64_PALETTE = {
+  black:      "#000000",
+  white:      "#ffffff",
+  red:        "#cc0000",
+  cyan:       "#66cccc",
+  purple:     "#cc00cc",
+  green:      "#00cc00",
+  blue:       "#0000cc",
+  yellow:     "#cccc00",
+  orange:     "#cc6600",
+  brown:      "#663300",
+  lightred:   "#ff6666",
+  darkgray:   "#666666",
+  gray:       "#999999",
+  lightgreen: "#66ff66",
+  lightblue:  "#6699ff",
+  lightgray:  "#cccccc",
+};
+
+/* ═══════════════════════════════════════════════════════════
+   CANVAS + IMAGE DATA
+   ═══════════════════════════════════════════════════════════ */
+const WIDTH  = 240;
+const HEIGHT = 136;
+const canvas = document.getElementById("display-canvas");
+const ctx    = canvas.getContext("2d", { willReadFrequently: true });
+let imageData = ctx.createImageData(WIDTH, HEIGHT);
+const pixels = new Uint32Array(imageData.data.buffer); // ABGR little-endian
+
+/* ═══════════════════════════════════════════════════════════
+   COLOR UTILITIES
+   ═══════════════════════════════════════════════════════════ */
+function resolveColor(c) {
+  if (typeof c === "string") {
+    const lower = c.toLowerCase();
+    if (C64_PALETTE[lower] !== undefined) return C64_PALETTE[lower];
+    return c; // pass through hex / css names
+  }
+  if (Array.isArray(c) && c.length === 3) {
+    return `#${c[0].toString(16).padStart(2,'0')}${c[1].toString(16).padStart(2,'0')}${c[2].toString(16).padStart(2,'0')}`;
+  }
+  return "#ffffff";
+}
+
+function hexToABGR(hex) {
+  const m = hex.replace('#','').match(/.{2}/g);
+  if (!m) return 0xff000000;
+  const r = parseInt(m[0],16), g = parseInt(m[1],16), b = parseInt(m[2],16);
+  return 0xff000000 | (b << 16) | (g << 8) | r; // ABGR LE
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SCREEN API (exposed to Python via pyodide.ffi)
+   ═══════════════════════════════════════════════════════════ */
+const keyQueue = [];
+let mouseX = 0, mouseY = 0, mouseDown = false;
+
+function renderFrame() {
+  ctx.putImageData(imageData, 0, 0);
+}
+
+function drawGlyph(px, py, code, colorABGR) {
+  const glyph = FONT[code];
+  if (!glyph) return;
+  for (let row = 0; row < 8; row++) {
+    const byte = glyph[row];
+    for (let col = 0; col < 8; col++) {
+      if (byte & (0x80 >> col)) {
+        const sx = px + col, sy = py + row;
+        if (sx >= 0 && sx < WIDTH && sy >= 0 && sy < HEIGHT) {
+          pixels[sy * WIDTH + sx] = colorABGR;
+        }
+      }
+    }
+  }
+}
+
+const screen = {
+  // ── Pixel API ──
+  cls() {
+    pixels.fill(0xff000000);
+    renderFrame();
+  },
+
+  pix(x, y, color) {
+    const sx = Math.floor(x), sy = Math.floor(y);
+    if (sx >= 0 && sx < WIDTH && sy >= 0 && sy < HEIGHT) {
+      pixels[sy * WIDTH + sx] = hexToABGR(resolveColor(color));
+    }
+  },
+
+  get(x, y) {
+    const sx = Math.floor(x), sy = Math.floor(y);
+    if (sx >= 0 && sx < WIDTH && sy >= 0 && sy < HEIGHT) {
+      const abgr = pixels[sy * WIDTH + sx];
+      const r = abgr & 0xff, g = (abgr >> 8) & 0xff, b = (abgr >> 16) & 0xff;
+      return [r, g, b];
+    }
+    return [0, 0, 0];
+  },
+
+  line(x1, y1, x2, y2, color) {
+    const abgr = hexToABGR(resolveColor(color));
+    let dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
+    let sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1;
+    let err = dx - dy, x = x1, y = y1;
+    while (true) {
+      if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) pixels[y * WIDTH + x] = abgr;
+      if (x === x2 && y === y2) break;
+      let e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x += sx; }
+      if (e2 <  dx) { err += dx; y += sy; }
+    }
+  },
+
+  rect(x, y, w, h, color, filled) {
+    const abgr = hexToABGR(resolveColor(color));
+    const x2 = Math.min(x + w - 1, WIDTH - 1);
+    const y2 = Math.min(y + h - 1, HEIGHT - 1);
+    if (filled) {
+      for (let cy = y; cy <= y2; cy++) {
+        for (let cx = x; cx <= x2; cx++) {
+          if (cx >= 0 && cy >= 0) pixels[cy * WIDTH + cx] = abgr;
+        }
+      }
+    } else {
+      for (let cx = x; cx <= x2; cx++) {
+        if (cx >= 0 && y >= 0 && y < HEIGHT) pixels[y * WIDTH + cx] = abgr;
+        if (cx >= 0 && y2 >= 0 && y2 < HEIGHT) pixels[y2 * WIDTH + cx] = abgr;
+      }
+      for (let cy = y; cy <= y2; cy++) {
+        if (x >= 0 && cy >= 0 && cy < HEIGHT) pixels[cy * WIDTH + x] = abgr;
+        if (x2 >= 0 && cy >= 0 && cy < HEIGHT) pixels[cy * WIDTH + x2] = abgr;
+      }
+    }
+  },
+
+  circ(x, y, radius, color, filled) {
+    const abgr = hexToABGR(resolveColor(color));
+    if (filled) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (dx*dx + dy*dy <= radius*radius) {
+            const px2 = x + dx, py2 = y + dy;
+            if (px2 >= 0 && px2 < WIDTH && py2 >= 0 && py2 < HEIGHT)
+              pixels[py2 * WIDTH + px2] = abgr;
+          }
+        }
+      }
+    } else {
+      let dx = -radius, dy = 0, err = 0;
+      while (dx <= 0) {
+        [[x-dx,y+dy],[x+dx,y+dy],[x-dx,y-dy],[x+dx,y-dy],
+         [x-dy,y+dx],[x+dy,y+dx],[x-dy,y-dx],[x+dy,y-dx]].forEach(([px2,py2])=>{
+          if(px2>=0&&px2<WIDTH&&py2>=0&&py2<HEIGHT) pixels[py2*WIDTH+px2]=abgr;
+        });
+        let e2 = 2*err;
+        if (e2 > dy--) { err += ++dy; }
+        if (e2 < dx++ || err > dy) { err += ++dx; }
+      }
+    }
+  },
+
+  // ── Text (bitmap font) ──
+  text(str, x, y, size, color) {
+    const abgr = hexToABGR(resolveColor(color || "white"));
+    const sz = Math.max(1, Math.min(4, Math.floor(size || 1)));
+    let cx = Math.floor(x), cy = Math.floor(y);
+    for (const ch of str) {
+      const code = ch.charCodeAt(0);
+      if (code >= 32 && code <= 126 && FONT[code]) {
+        const glyph = FONT[code];
+        for (let row = 0; row < 8; row++) {
+          const byte = glyph[row];
+          for (let col = 0; col < 8; col++) {
+            if (byte & (0x80 >> col)) {
+              // Scale: each source pixel becomes sz×sz block
+              for (let sy2 = 0; sy2 < sz; sy2++) {
+                for (let sx2 = 0; sx2 < sz; sx2++) {
+                  const px2 = cx + col * sz + sx2;
+                  const py2 = cy + row * sz + sy2;
+                  if (px2 >= 0 && px2 < WIDTH && py2 >= 0 && py2 < HEIGHT)
+                    pixels[py2 * WIDTH + px2] = abgr;
+                }
+              }
+            }
+          }
+        }
+      }
+      cx += 8 * sz;
+    }
+  },
+
+  // ── Blit (copy region) ──
+  blit(srcX, srcY, w, h, dstX, dstY) {
+    const sx = Math.floor(srcX), sy = Math.floor(srcY);
+    const dx = Math.floor(dstX), dy = Math.floor(dstY);
+    const sw = Math.floor(w), sh = Math.floor(h);
+    for (let cy2 = 0; cy2 < sh; cy2++) {
+      for (let cx2 = 0; cx2 < sw; cx2++) {
+        const srcPx = sx + cx2, srcPy = sy + cy2;
+        const dstPx = dx + cx2, dstPy = dy + cy2;
+        if (srcPx>=0&&srcPx<WIDTH&&srcPy>=0&&srcPy<HEIGHT&&
+            dstPx>=0&&dstPx<WIDTH&&dstPy>=0&&dstPy<HEIGHT) {
+          pixels[dstPy * WIDTH + dstPx] = pixels[srcPy * WIDTH + srcPx];
+        }
+      }
+    }
+  },
+
+  // ── Backward-compatible API ──
+  clear() { this.cls(); },
+
+  set(x, y, ch, fg, bg) {
+    const bgABGR = hexToABGR(resolveColor(bg || "black"));
+    const fgABGR = hexToABGR(resolveColor(fg || "white"));
+    const sx = Math.floor(x), sy = Math.floor(y);
+    // Fill 8×8 cell with background
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const px2 = sx + col, py2 = sy + row;
+        if (px2 >= 0 && px2 < WIDTH && py2 >= 0 && py2 < HEIGHT)
+          pixels[py2 * WIDTH + px2] = bgABGR;
+      }
+    }
+    // Draw glyph in foreground
+    const code = ch.charCodeAt(0);
+    drawGlyph(sx, sy, code, fgABGR);
+  },
+
+  print(text, x, y, fg, bg) {
+    const fgABGR = hexToABGR(resolveColor(fg || "white"));
+    const bgABGR = hexToABGR(resolveColor(bg || "black"));
+    let cx = Math.floor(x), cy = Math.floor(y);
+    for (const ch of text) {
+      if (ch === '\n') { cx = Math.floor(x); cy += 8; continue; }
+      if (cx + 8 > WIDTH) { cx = Math.floor(x); cy += 8; }
+      if (cy + 8 > HEIGHT) {
+        // Scroll up by 8 pixels
+        const shifted = [];
+        for (let py2 = 8; py2 < HEIGHT; py2++) {
+          for (let px2 = 0; px2 < WIDTH; px2++) {
+            shifted.push(pixels[py2 * WIDTH + px2]);
+          }
+        }
+        let idx = 0;
+        for (let py2 = 0; py2 < HEIGHT - 8; py2++) {
+          for (let px2 = 0; px2 < WIDTH; px2++) {
+            pixels[py2 * WIDTH + px2] = shifted[idx++];
+          }
+        }
+        // Clear bottom 8 rows
+        for (let py2 = HEIGHT - 8; py2 < HEIGHT; py2++) {
+          for (let px2 = 0; px2 < WIDTH; px2++) {
+            pixels[py2 * WIDTH + px2] = bgABGR;
+          }
+        }
+        cy = HEIGHT - 16;
+      }
+      // Fill cell background
+      for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+          const px2 = cx + col, py2 = cy + row;
+          if (px2 >= 0 && px2 < WIDTH && py2 >= 0 && py2 < HEIGHT)
+            pixels[py2 * WIDTH + px2] = bgABGR;
+        }
+      }
+      const code = ch.charCodeAt(0);
+      drawGlyph(cx, cy, code, fgABGR);
+      cx += 8;
+    }
+  },
+
+  scroll(n) {
+    const rows = Math.floor(n);
+    if (rows <= 0) return;
+    const shifted = [];
+    for (let py2 = rows; py2 < HEIGHT; py2++) {
+      for (let px2 = 0; px2 < WIDTH; px2++) {
+        shifted.push(pixels[py2 * WIDTH + px2]);
+      }
+    }
+    let idx = 0;
+    for (let py2 = 0; py2 < HEIGHT - rows; py2++) {
+      for (let px2 = 0; px2 < WIDTH; px2++) {
+        pixels[py2 * WIDTH + px2] = shifted[idx++];
+      }
+    }
+    for (let py2 = HEIGHT - rows; py2 < HEIGHT; py2++) {
+      for (let px2 = 0; px2 < WIDTH; px2++) {
+        pixels[py2 * WIDTH + px2] = 0xff000000;
+      }
+    }
+    renderFrame();
+  },
+
+  refresh() { renderFrame(); },
+
+  // ── Input ──
+  read_key() {
+    return keyQueue.shift() || "none";
+  },
+
+  get mouse_x() { return mouseX; },
+  get mouse_y() { return mouseY; },
+  is_mouse_down() { return mouseDown; },
+
+  // ── Palette info ──
+  palette() { return Object.keys(C64_PALETTE); },
+  width: WIDTH,
+  height: HEIGHT,
+};
+
+/* ═══════════════════════════════════════════════════════════
+   KEYBOARD + MOUSE HANDLING
+   ═══════════════════════════════════════════════════════════ */
+const keyMap = {
+  ArrowUp:"up",ArrowDown:"down",ArrowLeft:"left",ArrowRight:"right",
+  Enter:"enter",Escape:"esc",Tab:"tab",Backspace:"backspace",
+  Delete:"delete",Insert:"insert",Home:"home",End:"end",
+  PageUp:"pageup",PageDown:"pagedown",CapsLock:"capslock",
+};
+
+document.addEventListener("keydown", e => {
+  // Don't capture keys when focused on editor or help overlay
+  if (e.target.closest("#editor-wrap") || e.target.closest("#help-overlay")) return;
+  const name = keyMap[e.key] || e.key.toLowerCase();
+  if (name && name.length <= 2) {
+    keyQueue.push(name);
+    if (["arrowup","arrowdown","arrowleft","arrowright","enter","escape","backspace","delete"].includes(e.key.toLowerCase())) {
+      e.preventDefault();
+    }
+  }
+});
+
+canvas.addEventListener("mousemove", e => {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = Math.floor((e.clientX - rect.left) / rect.width * WIDTH);
+  mouseY = Math.floor((e.clientY - rect.top) / rect.height * HEIGHT);
+});
+canvas.addEventListener("mousedown", () => { mouseDown = true; });
+canvas.addEventListener("mouseup",   () => { mouseDown = false; });
+
+/* ═══════════════════════════════════════════════════════════
+   CODE EDITOR (Ace Editor)
+   ═══════════════════════════════════════════════════════════ */
+const defaultCode = `# Welcome to rython — a retro Python console!
+# Press Run or Ctrl+Enter to execute.
+#
+# Use: screen.cls(), screen.pix(), screen.line(), screen.rect(),
+#       screen.circ(), screen.text(), screen.refresh()
+# Call await frame() in animation loops to let the browser repaint.
+
+import math
+
+screen.cls()
+screen.text("  RYTHON", 62, 30, 2, "cyan")
+screen.text("  Retro Python Console", 18, 58, 1, "lightgray")
+screen.refresh()
+
+# Animated sine wave
+for t in range(60):
+    screen.cls()
+    for x in range(240):
+        y = int(68 + math.sin(x * 0.05 + t * 0.1) * 30)
+        screen.line(x, y, x, y + 1, "#53d769")
+    cx = 120 + int(60 * math.cos(t * 0.05))
+    cy = 68  + int(40 * math.sin(t * 0.05))
+    screen.circ(cx, cy, 5, "yellow", True)
+    screen.text(f"frame {t}", 4, 4, 1, "white")
+    await frame()  # yield to browser so it can repaint
+
+screen.cls()
+screen.text("  Done! Press Run again.", 38, 60, 1, "green")`;
+
+let editor;
+function initEditor() {
+  editor = ace.edit("editor-wrap");
+  editor.setTheme("ace/theme/one_dark");
+  editor.session.setMode("ace/mode/python");
+  editor.session.setTabSize(4);
+  editor.session.setUseSoftTabs(true);
+  editor.setValue(defaultCode, -1); // -1 = cursor at start
+  editor.resize();
+}
+// Wait for Ace to be ready
+if (typeof ace !== "undefined" && ace.edit) {
+  initEditor();
+  addEditorShortcut();
+} else {
+  window.addEventListener("load", () => { initEditor(); addEditorShortcut(); });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PYODIDE INIT + RUN
+   ═══════════════════════════════════════════════════════════ */
+let pyodide = null;
+let running = false;
+const statusEl  = document.getElementById("status-bar");
+const runBtn    = document.getElementById("run-btn");
+const stopBtn   = document.getElementById("stop-btn");
+const fpsEl     = document.getElementById("fps-display");
+
+async function initPyodide() {
+  try {
+    // Load Pyodide script from best available CDN
+    if (!pyodideLoaded) await loadPyodideScript();
+    pyodide = await loadPyodide();
+
+    // Rename our screen to avoid collision with browser's window.screen in js. namespace
+    window._rythonScreen = screen;
+
+    // Expose helpers to Python: screen (via js._rythonScreen), frame(), time.sleep
+    // Define a JS function that returns a Promise for yielding control (32ms delay ≈ 30fps)
+    window._rythonYield = (delay = 32) => new Promise(r => setTimeout(r, delay));
+
+    await pyodide.runPython(`
+import builtins, js as _js
+builtins.screen = _js._rythonScreen
+async def frame():
+    """Call after drawing each animation frame to yield to browser."""
+    screen.refresh()
+    await _js._rythonYield()
+`);
+
+    // Verify screen works from Python
+    try {
+      await pyodide.runPython(`screen.cls()`);
+      console.log("[rython] screen object OK from Python");
+    } catch(e) {
+      console.error("[rython] screen NOT accessible from Python:", e);
+    }
+
+    document.getElementById("loading").classList.add("hidden");
+    statusEl.textContent = "Ready — press ▶ Run or Ctrl+Enter to execute";
+  } catch (e) {
+    document.getElementById("loading").classList.add("hidden");
+    statusEl.innerHTML = `<span class="error">Failed to load Pyodide: ${e.message}. Check your internet connection.</span>`;
+  }
+}
+
+async function runCode() {
+  if (running) return;
+  running = true;
+  runBtn.style.display = "none";
+  stopBtn.style.display = "";
+  statusEl.textContent = "Running…";
+  fpsEl.textContent = "";
+
+  // Clear display and key queue
+  screen.cls();
+  keyQueue.length = 0;
+  const code = editor.getValue();
+
+  try {
+    // Re-expose screen and frame helper for each run
+    await pyodide.runPython(`
+import builtins, js as _js
+builtins.screen = _js._rythonScreen
+async def frame():
+    screen.refresh()
+    await _js._rythonYield()
+builtins.frame = frame
+`);
+
+    // Run user code
+    await pyodide.runPythonAsync(code);
+    statusEl.textContent = "Done";
+    console.log("[rython] code executed successfully");
+  } catch (e) {
+    const errMsg = String(e).slice(0, 500);
+    console.error("[rython] Pyodide error:", e);
+    statusEl.innerHTML = `<span class="error">${errMsg.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</span>`;
+    // Also show error on canvas
+    screen.cls();
+    const shortMsg = errMsg.split('\n').pop() || errMsg;
+    for (let i = 0; i < Math.min(shortMsg.length, 200); i += 30) {
+      screen.text(shortMsg.slice(i, i + 30), 4, 4 + (i / 30) * 10, 1, "red");
+    }
+  }
+
+  running = false;
+  runBtn.style.display = "";
+  stopBtn.style.display = "none";
+}
+
+function stopCode() {
+  running = false;
+  runBtn.style.display = "";
+  stopBtn.style.display = "none";
+  statusEl.textContent = "Stopped";
+  fpsEl.textContent = "";
+}
+
+/* ═══════════════════════════════════════════════════════════
+   UI WIRING
+   ═══════════════════════════════════════════════════════════ */
+runBtn.addEventListener("click", runCode);
+stopBtn.addEventListener("click", stopCode);
+
+// Ctrl+Enter to run/stop
+function addEditorShortcut() {
+  if (editor) {
+    editor.commands.addCommand({
+      name: "runCode",
+      bindKey: { win: "Ctrl-Enter", mac: "Ctrl-Enter" },
+      exec: () => { if (running) stopCode(); else runCode(); }
+    });
+  }
+}
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    e.preventDefault();
+    if (running) stopCode(); else runCode();
+  }
+});
+
+// Help overlay
+const helpOverlay = document.getElementById("help-overlay");
+document.getElementById("help-btn").addEventListener("click", () => {
+  helpOverlay.classList.add("visible");
+});
+document.getElementById("close-help").addEventListener("click", () => {
+  helpOverlay.classList.remove("visible");
+});
+helpOverlay.addEventListener("click", e => {
+  if (e.target === helpOverlay) helpOverlay.classList.remove("visible");
+});
+
+// FPS counter
+let frameCount = 0, lastFpsTime = performance.now();
+function updateFPS() {
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFpsTime >= 1000) {
+    fpsEl.textContent = `${frameCount} fps`;
+    frameCount = 0;
+    lastFpsTime = now;
+  }
+  requestAnimationFrame(updateFPS);
+}
+updateFPS();
+
+// Scale canvas to fit container
+function resizeCanvas() {
+  const wrap = document.getElementById("canvas-wrap");
+  const cw = wrap.clientWidth - 16;
+  const ch = wrap.clientHeight - 16;
+  const scale = Math.min(cw / WIDTH, ch / HEIGHT);
+  canvas.style.width  = (WIDTH * scale) + "px";
+  canvas.style.height = (HEIGHT * scale) + "px";
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+/* ═══════════════════════════════════════════════════════════
+   BOOT
+   ═══════════════════════════════════════════════════════════ */
+screen.cls();
+screen.text("  rython", 72, 50, 2, "cyan");
+screen.text("  Retro Python Console", 38, 74, 1, "gray");
+screen.text("  Press Run to start!", 50, 94, 1, "green");
+
+initPyodide();
+</script>
+</body>
+</html>
